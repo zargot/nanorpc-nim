@@ -34,9 +34,7 @@ proc newNanoRPC(): NanoRPC =
 template defAccountAction(action, argName): untyped =
     proc action*(self: NanoRPC, arg: string): Result =
         assert arg.len == 64
-        let
-            action = $getFrame().procname
-            body = $(%*{ "action": action, argName: arg })
+        let body = $(%*{ "action": action, argName: arg })
         echo body
         client.request url, HttpPost, body
 
