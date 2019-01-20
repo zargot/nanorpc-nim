@@ -115,30 +115,38 @@ when defined testing:
         var nano: NanoRPC
         var wallet: string
 
-        setup:
-            let config = parseFile "config.json"
-            wallet = config["wallet"].getStr
-            nano = newNanoRPC()
-            echo wallet
-        
-        test "account":
-            var
-                ok: bool
-                acc: string
-                accounts: seq[string]
-                balance: Balance
+        let config = parseFile "config.json"
+        wallet = config["wallet"].getStr
+        nano = newNanoRPC()
+        echo wallet
 
-            when defined control:
+        var
+            ok: bool
+            acc: string
+            accounts: seq[string]
+            balance: Balance
+
+        when false and defined control:
+            test "account create/remove":
                 (ok, acc) = nano.account_create(wallet)
                 assert ok
+
                 ok = nano.account_remove(wallet, acc)
                 assert ok, "OBS: remove account manually:\n" & acc
 
+        test "account list":
             (ok, accounts) = nano.account_list(wallet)
             assert ok
             echo accounts
             assert accounts.len > 0, "no accounts present"
+            acc = accounts[0]
 
-            (ok, balance) = nano.account_balance(accounts[0])
+        test "account balance":
+            (ok, balance) = nano.account_balance(acc)
             assert ok
             echo balance
+
+        when defined control:
+            test "account repr set":
+                    ok = nano.account_representative_set(wallet, acc, acc)
+                    assert ok
