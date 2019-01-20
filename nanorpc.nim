@@ -80,7 +80,7 @@ proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
         return
 
     assert accounts != nil
-    assert accounts.len > 0 and accounts[0] != nil
+    assert accounts.len == 0 or accounts[0] != nil
     (true, accounts)
 
 proc account_representative_set*(self: NanoRPC, wallet, acc, rep: string): bool =
@@ -94,7 +94,8 @@ proc account_representative_set*(self: NanoRPC, wallet, acc, rep: string): bool 
             "account": acc,
             "representative": rep
         }
-        (result, data) = request(body)
+        (ok, _) = request(body)
+    ok
 
 when defined testing:
     import unittest
@@ -119,6 +120,7 @@ when defined testing:
             (ok, accounts) = nano.account_list(wallet)
             assert ok
             echo accounts
+            assert accounts.len > 0, "no accounts present"
 
             (ok, balance) = nano.account_balance(accounts[0])
             assert ok
