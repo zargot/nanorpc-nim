@@ -64,6 +64,16 @@ proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
         return
     (true, data["account"].getStr)
 
+proc account_remove*(self: NanoRPC, wallet, acc: string): bool =
+    assert wallet.len == 64
+    assert acc.len == 64
+    let
+        body = %*{ "action": getProcName(), "wallet": wallet, "account": acc }
+        (ok, data) = request(body)
+    if not ok:
+        return
+    data["removed"].getStr == "1"
+
 proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
                   {.raises: [].} =
     assert wallet.len == 64
@@ -114,8 +124,15 @@ when defined testing:
         test "account":
             var
                 ok: bool
+                acc: string
                 accounts: seq[string]
                 balance: Balance
+
+            when defined control:
+                (ok, acc) = nano.account_create(wallet)
+                assert ok
+                ok = nano.account_remove(wallet, acc)
+                assert ok, "OBS: remove account manually:\n" & acc
 
             (ok, accounts) = nano.account_list(wallet)
             assert ok
