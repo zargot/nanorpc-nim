@@ -126,12 +126,10 @@ when defined testing:
     import os
 
     suite "tests":
-        var nano: NanoRPC
-        var wallet: string
-
-        let config = parseFile "config.json"
-        wallet = config["wallet"].getStr
-        nano = newNanoRPC()
+        let
+            config = parseFile "config.json"
+            wallet = config["wallet"].getStr
+            nano = newNanoRPC()
         echo wallet
 
         var
