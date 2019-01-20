@@ -62,11 +62,14 @@ template rpc(args: varargs[string]): (bool, JsonNode) =
     echo $body
     self.rpcImpl body
 
+proc initBalance(data: JsonNode): Balance =
+    (data["balance"].getStr, data["pending"].getStr)
+
 proc account_balance*(self: NanoRPC, account: string): (bool, Balance) =
     let (ok, data) = rpc(account)
     if not ok:
         return
-    (true, (data["balance"].getStr, data["pending"].getStr))
+    (true, initBalance(data))
 
 proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
     let (ok, data) = rpc(wallet)
@@ -108,6 +111,16 @@ proc send*(self: NanoRPC, wallet, source, destination,
     let blockId = data["block"].getStr
     (ok, blockId)
 
+proc wallet_balances*(self: NanoRPC, wallet: string):
+                              (bool, seq[(string, Balance)]) =
+    let (ok, data) = rpc(wallet)
+    if not ok:
+        return
+    result[0] = true
+    result[1] = @[]
+    for acc, balance in data["balances"]:
+        result[1].add (acc, initBalance(balance))
+
 when defined testing:
     import unittest
     import os
@@ -146,6 +159,12 @@ when defined testing:
             (ok, balance) = nano.account_balance(acc)
             assert ok
             echo balance
+
+        test "wallet balances":
+            let (ok, balances) = nano.wallet_balances(wallet)
+            assert ok
+            for pair in balances:
+                echo pair[0], ": ", pair[1].balance, " (", pair[1].pending ,")"
 
         when defined control:
             test "account repr set":
