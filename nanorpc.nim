@@ -27,6 +27,9 @@ converter toString(n: JsonNode): string =
 template getProcName(): string =
     $getFrame().procname
 
+template error(msg) =
+    echo "RPC error: ", msg
+
 proc newNanoRPC(): NanoRPC =
     result.new()
     result.client = newHttpClient()
@@ -36,12 +39,15 @@ proc request(self: NanoRPC, body: JsonNode): (bool, JsonNode) =
     try:
         let res = httpclient.request(client, url, HttpPost, $body)
         if res.code != 200.HttpCode:
+            error res.repr
             return
         let data = res.body.parseJson
         if data.hasKey("error"):
+            error data["error"].getStr
             return
         return (true, data)
     except:
+        error getCurrentExceptionMsg()
         discard
 
 proc account_balance*(self: NanoRPC, acc: string): (bool, Balance) =
