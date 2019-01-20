@@ -1,8 +1,9 @@
 {.this: self.}
 
-import sequtils
 import httpclient except request
 import json
+import macros
+import sequtils
 
 type
     Account = object
@@ -31,7 +32,7 @@ proc newNanoRPC(): NanoRPC =
     result.client = newHttpClient()
     result.client.headers = newHttpHeaders({ "Content-Type": "application/json" })
 
-proc request(self: NanoRPC, body: JsonNode): (bool, JsonNode) =
+proc rpcImpl(self: NanoRPC, body: JsonNode): (bool, JsonNode) =
     try:
         let res = httpclient.request(client, url, HttpPost, $body)
         if res.code != 200.HttpCode:
@@ -46,30 +47,36 @@ proc request(self: NanoRPC, body: JsonNode): (bool, JsonNode) =
         printErr getCurrentExceptionMsg()
         discard
 
-proc account_balance*(self: NanoRPC, acc: string): (bool, Balance) =
-    assert acc.len == 64
-    let
-        body = %*{ "action": getProcName(), "account": acc }
-        (ok, data) = request(body)
+macro buildBody(body: JsonNode, args: varargs[string]): untyped =
+    result = newNimNode nnkStmtList
+    for a in args:
+        let
+            key = newLit($a)
+            val = newCall(ident"newJString", a)
+        result.add newCall(ident"add", body, key, val)
+
+template rpc(args: varargs[string]): (bool, JsonNode) =
+    let action = getProcName()
+    var body = %*{ "action": action }
+    buildBody body, args
+    echo $body
+    self.rpcImpl body
+
+proc account_balance*(self: NanoRPC, account: string): (bool, Balance) =
+    let (ok, data) = rpc(account)
     if not ok:
         return
     (true, (data["balance"].getStr, data["pending"].getStr))
 
 proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
-    assert wallet.len == 64
-    let
-        body = %*{ "action": getProcName(), "wallet": wallet }
-        (ok, data) = request(body)
+    let (ok, data) = rpc(wallet)
     if not ok:
         return
     (true, data["account"].getStr)
 
 proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
                   {.raises: [].} =
-    assert wallet.len == 64
-    let
-        body = %*{ "action": getProcName(), "wallet": wallet }
-        (ok, data) = request(body)
+    let (ok, data) = rpc(wallet)
     if not ok:
         return
 
@@ -83,29 +90,22 @@ proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
     assert accounts.len == 0 or accounts[0] != nil
     (true, accounts)
 
-proc account_remove*(self: NanoRPC, wallet, acc: string): bool =
-    assert wallet.len == 64
-    assert acc.len == 64
-    let
-        body = %*{ "action": getProcName(), "wallet": wallet, "account": acc }
-        (ok, data) = request(body)
+proc account_remove*(self: NanoRPC, wallet, account: string): bool =
+    let (ok, data) = rpc(wallet, account)
     if not ok:
         return
     data["removed"].getStr == "1"
 
-proc account_representative_set*(self: NanoRPC, wallet, acc, rep: string): bool =
-    assert wallet.len == 64
-    assert acc.len == 64
-    assert rep.len == 64
+proc account_representative_set*(self: NanoRPC, wallet, account,
+                                 representative: string): bool =
+    rpc(wallet, account, representative)[0]
+
+proc send*(self: NanoRPC, wallet, source, destination,
+           amount: string): (bool, string) =
     let
-        body = %*{
-            "action": getProcName(),
-            "wallet": wallet,
-            "account": acc,
-            "representative": rep
-        }
-        (ok, _) = request(body)
-    ok
+        (ok, data) = rpc(wallet, source, destination, amount)
+        blockId = data["block"].getStr
+    (ok, blockId)
 
 when defined testing:
     import unittest
