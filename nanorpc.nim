@@ -20,10 +20,6 @@ type
 const
     url = "http://[::1]:7076"
 
-converter toString(n: JsonNode): string =
-    assert n.kind == JString
-    ($n)[1..^2]
-
 template getProcName(): string =
     $getFrame().procname
 
@@ -57,7 +53,7 @@ proc account_balance*(self: NanoRPC, acc: string): (bool, Balance) =
         (ok, data) = request(body)
     if not ok:
         return
-    (true, (data["balance"].string, data["pending"].string))
+    (true, (data["balance"].getStr, data["pending"].getStr))
 
 proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
     assert wallet.len == 64
@@ -66,7 +62,7 @@ proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
         (ok, data) = request(body)
     if not ok:
         return
-    (true, data["account"].string)
+    (true, data["account"].getStr)
 
 proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
                   {.raises: [].} =
@@ -79,7 +75,7 @@ proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
 
     var accounts: seq[string]
     try:
-        accounts = data["accounts"].getElems.mapIt(it.toString)
+        accounts = data["accounts"].getElems.mapIt(it.getStr)
     except:
         return
 
@@ -110,7 +106,7 @@ when defined testing:
 
         setup:
             let config = parseFile "config.json"
-            wallet = config["wallet"]
+            wallet = config["wallet"].getStr
             nano = newNanoRPC()
             echo wallet
         
