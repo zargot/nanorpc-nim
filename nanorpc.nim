@@ -102,9 +102,10 @@ proc account_representative_set*(self: NanoRPC, wallet, account,
 
 proc send*(self: NanoRPC, wallet, source, destination,
            amount: string): (bool, string) =
-    let
-        (ok, data) = rpc(wallet, source, destination, amount)
-        blockId = data["block"].getStr
+    let (ok, data) = rpc(wallet, source, destination, amount)
+    if not ok:
+        return
+    let blockId = data["block"].getStr
     (ok, blockId)
 
 when defined testing:
