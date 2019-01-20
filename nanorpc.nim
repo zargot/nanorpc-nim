@@ -103,9 +103,16 @@ proc account_representative_set*(self: NanoRPC, wallet, account,
                                  representative: string): bool =
     rpc(wallet, account, representative)[0]
 
-proc send*(self: NanoRPC, wallet, source, destination,
-           amount: string): (bool, string) =
-    let (ok, data) = rpc(wallet, source, destination, amount)
+proc send*(self: NanoRPC, wallet, source, destination, amount: string):
+          (bool, string) =
+
+    # TODO unique guid per node
+    var guid {.global.} = 1
+    guid.inc
+
+    let
+        id = $guid
+        (ok, data) = rpc(wallet, source, destination, amount, id)
     if not ok:
         return
     let blockId = data["block"].getStr
