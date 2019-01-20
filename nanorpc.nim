@@ -48,8 +48,8 @@ proc account_balance*(self: NanoRPC, acc: string): (bool, Balance) =
     assert acc.len == 64
     let
         body = %*{ "action": getProcName(), "account": acc }
-        (success, data) = request(body)
-    if not success:
+        (ok, data) = request(body)
+    if not ok:
         return
     (true, (data["balance"].string, data["pending"].string))
 
@@ -57,8 +57,8 @@ proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
     assert wallet.len == 64
     let
         body = %*{ "action": getProcName(), "wallet": wallet }
-        (success, data) = request(body)
-    if not success:
+        (ok, data) = request(body)
+    if not ok:
         return
     (true, data["account"].string)
 
