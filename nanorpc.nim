@@ -1,6 +1,8 @@
 {.this: self.}
 
-import httpclient, json
+import sequtils
+import httpclient except request
+import json
 
 type
     Account = object
@@ -9,57 +11,88 @@ type
     Block = object
         kind, prev, dst, balance, work, sig: string
 
-    Result* = tuple
-        success: bool
-        value: string
-
     NanoRPC* = ref object
         client: HttpClient
+
+    Balance* = tuple
+        balance, pending: string
 
 const
     url = "http://[::1]:7076"
 
-converter toResult(res: Response): Result =
-    (res.code == 200.HttpCode, res.body)
-
 converter toString(n: JsonNode): string =
     assert n.kind == JString
     ($n)[1..^2]
+
+template getProcName(): string =
+    $getFrame().procname
 
 proc newNanoRPC(): NanoRPC =
     result.new()
     result.client = newHttpClient()
     result.client.headers = newHttpHeaders({ "Content-Type": "application/json" })
 
-template defAccountAction(action, argName): untyped =
-    proc action*(self: NanoRPC, arg: string): Result =
-        assert arg.len == 64
-        let
-            action = $getFrame().procname
-            body = $(%*{ "action": action, argName: arg })
-        echo body
-        client.request url, HttpPost, body
+proc request(self: NanoRPC, body: JsonNode): (bool, JsonNode) =
+    try:
+        let res = httpclient.request(client, url, HttpPost, $body)
+        if res.code != 200.HttpCode:
+            return
+        let data = res.body.parseJson
+        if data.hasKey("error"):
+            return
+        return (true, data)
+    except:
+        discard
 
-template defAccountAction(action, argName1, argName2, argName3): untyped =
-    proc action*(self: NanoRPC, arg1, arg2, arg3: string): Result =
-        assert arg1.len == 64
-        assert arg2.len == 64
-        assert arg3.len == 64
-        let
-            action = $getFrame().procname
-            body = $(%*{
-                "action": action,
-                argName1: arg1,
-                argName2: arg2,
-                argName3: arg3,
-            })
-        echo body
-        client.request url, HttpPost, body
+proc account_balance*(self: NanoRPC, acc: string): (bool, Balance) =
+    assert acc.len == 64
+    let
+        body = %*{ "action": getProcName(), "account": acc }
+        (success, data) = request(body)
+    if not success:
+        return
+    (true, (data["balance"].string, data["pending"].string))
 
-defAccountAction account_balance, "account"
-defAccountAction account_create, "wallet"
-defAccountAction account_list, "wallet"
-defAccountAction account_representative_set, "wallet", "account", "representative"
+proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
+    assert wallet.len == 64
+    let
+        body = %*{ "action": getProcName(), "wallet": wallet }
+        (success, data) = request(body)
+    if not success:
+        return
+    (true, data["account"].string)
+
+proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
+                  {.raises: [].} =
+    assert wallet.len == 64
+    let
+        body = %*{ "action": getProcName(), "wallet": wallet }
+        (ok, data) = request(body)
+    if not ok:
+        return
+
+    var accounts: seq[string]
+    try:
+        accounts = data["accounts"].getElems.mapIt(it.toString)
+    except:
+        return
+
+    assert accounts != nil
+    assert accounts.len > 0 and accounts[0] != nil
+    (true, accounts)
+
+proc account_representative_set*(self: NanoRPC, wallet, acc, rep: string): bool =
+    assert wallet.len == 64
+    assert acc.len == 64
+    assert rep.len == 64
+    let
+        body = %*{
+            "action": getProcName(),
+            "wallet": wallet,
+            "account": acc,
+            "representative": rep
+        }
+        (result, data) = request(body)
 
 when defined testing:
     import unittest
@@ -76,12 +109,15 @@ when defined testing:
             echo wallet
         
         test "account":
-            var res: Result
-            res = nano.account_list(wallet)
-            assert res.success
+            var
+                ok: bool
+                accounts: seq[string]
+                balance: Balance
 
-            let acc: string = res.value.parseJson()["accounts"][0]
-            echo acc
-            res = nano.account_balance(acc)
-            assert res.success
-            echo res.value
+            (ok, accounts) = nano.account_list(wallet)
+            assert ok
+            echo accounts
+
+            (ok, balance) = nano.account_balance(accounts[0])
+            assert ok
+            echo balance
