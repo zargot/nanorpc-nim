@@ -148,5 +148,5 @@ when defined testing:
 
         when defined control:
             test "account repr set":
-                    ok = nano.account_representative_set(wallet, acc, acc)
-                    assert ok
+                ok = nano.account_representative_set(wallet, acc, acc)
+                assert ok
