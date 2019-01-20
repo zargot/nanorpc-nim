@@ -165,6 +165,18 @@ when defined testing:
             assert ok
             echo balance
 
+        when false and defined control:
+            test "send":
+                assert accounts.len >= 2
+                assert balance.balance != "0"
+                let
+                    src = accounts[0]
+                    dst = accounts[1]
+                    amount = "1"
+                    (ok, blockId) = nano.send(wallet, src, dst, amount)
+                assert ok
+                echo "sent ", amount, " raw"
+
         test "wallet balances":
             let (ok, balances) = nano.wallet_balances(wallet)
             assert ok
