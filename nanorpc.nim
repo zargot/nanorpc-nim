@@ -40,8 +40,26 @@ template defAccountAction(action, argName): untyped =
         echo body
         client.request url, HttpPost, body
 
+template defAccountAction(action, argName1, argName2, argName3): untyped =
+    proc action*(self: NanoRPC, arg1, arg2, arg3: string): Result =
+        assert arg1.len == 64
+        assert arg2.len == 64
+        assert arg3.len == 64
+        let
+            action = $getFrame().procname
+            body = $(%*{
+                "action": action,
+                argName1: arg1,
+                argName2: arg2,
+                argName3: arg3,
+            })
+        echo body
+        client.request url, HttpPost, body
+
 defAccountAction account_balance, "account"
+defAccountAction account_create, "wallet"
 defAccountAction account_list, "wallet"
+defAccountAction account_representative_set, "wallet", "account", "representative"
 
 when defined testing:
     import unittest
