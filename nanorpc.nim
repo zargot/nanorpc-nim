@@ -23,7 +23,7 @@ const
 template getProcName(): string =
     $getFrame().procname
 
-template error(msg) =
+template printErr(msg) =
     echo "RPC error: ", msg
 
 proc newNanoRPC(): NanoRPC =
@@ -35,15 +35,15 @@ proc request(self: NanoRPC, body: JsonNode): (bool, JsonNode) =
     try:
         let res = httpclient.request(client, url, HttpPost, $body)
         if res.code != 200.HttpCode:
-            error res.repr
+            printErr res.repr
             return
         let data = res.body.parseJson
         if data.hasKey("error"):
-            error data["error"].getStr
+            printErr data["error"].getStr
             return
         return (true, data)
     except:
-        error getCurrentExceptionMsg()
+        printErr getCurrentExceptionMsg()
         discard
 
 proc account_balance*(self: NanoRPC, acc: string): (bool, Balance) =
