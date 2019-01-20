@@ -64,16 +64,6 @@ proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
         return
     (true, data["account"].getStr)
 
-proc account_remove*(self: NanoRPC, wallet, acc: string): bool =
-    assert wallet.len == 64
-    assert acc.len == 64
-    let
-        body = %*{ "action": getProcName(), "wallet": wallet, "account": acc }
-        (ok, data) = request(body)
-    if not ok:
-        return
-    data["removed"].getStr == "1"
-
 proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
                   {.raises: [].} =
     assert wallet.len == 64
@@ -92,6 +82,16 @@ proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
     assert accounts != nil
     assert accounts.len == 0 or accounts[0] != nil
     (true, accounts)
+
+proc account_remove*(self: NanoRPC, wallet, acc: string): bool =
+    assert wallet.len == 64
+    assert acc.len == 64
+    let
+        body = %*{ "action": getProcName(), "wallet": wallet, "account": acc }
+        (ok, data) = request(body)
+    if not ok:
+        return
+    data["removed"].getStr == "1"
 
 proc account_representative_set*(self: NanoRPC, wallet, acc, rep: string): bool =
     assert wallet.len == 64
