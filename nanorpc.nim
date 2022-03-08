@@ -1,9 +1,7 @@
-{.this: self.}
-
-import httpclient except request
-import json
+import httpclient # except request
+import json, std/jsonutils
 import macros
-import sequtils
+import logging
 
 type
     Account = object
@@ -12,14 +10,14 @@ type
     Block = object
         kind, prev, dst, balance, work, sig: string
 
-    NanoRPC* = ref object
-        client: HttpClient
-
     Balance* = tuple
         balance, pending: string
 
 const
-    url = "http://[::1]:7076"
+    hostUrl = "http://[::1]:7076"
+
+using
+    client: HttpClient
 
 template getProcName(): string =
     $getFrame().procname
@@ -27,14 +25,14 @@ template getProcName(): string =
 template printErr(msg) =
     echo "RPC error: ", msg
 
-proc newNanoRPC(): NanoRPC =
-    result.new()
-    result.client = newHttpClient()
-    result.client.headers = newHttpHeaders({ "Content-Type": "application/json" })
+proc newNanoRPC(): HttpClient =
+    result = newHttpClient()
+    result.headers = newHttpHeaders({ "Content-Type": "application/json" })
 
-proc rpcImpl(self: NanoRPC, body: JsonNode): (bool, JsonNode) =
+proc rpcImpl(client; body: JsonNode): (bool, JsonNode)
+            {.raises: [].} =
     try:
-        let res = httpclient.request(client, url, HttpPost, $body)
+        let res = client.request(hostUrl, HttpPost, $body)
         if res.code != 200.HttpCode:
             printErr res.repr
             return
@@ -55,82 +53,88 @@ macro buildBody(body: JsonNode, args: varargs[string]): untyped =
             val = newCall(ident"newJString", a)
         result.add newCall(ident"add", body, key, val)
 
-template rpc(args: varargs[string]): (bool, JsonNode) =
+template rpc(client; args: varargs[string]): tuple[ok: bool, data: JsonNode] =
     let action = getProcName()
     var body = %*{ "action": action }
     buildBody body, args
     echo $body
-    self.rpcImpl body
+    rpcImpl client, body
 
-proc initBalance(data: JsonNode): Balance =
-    (data["balance"].getStr, data["pending"].getStr)
-
-proc account_balance*(self: NanoRPC, account: string): (bool, Balance) =
-    let (ok, data) = rpc(account)
-    if not ok:
-        return
-    (true, initBalance(data))
-
-proc account_create*(self: NanoRPC, wallet: string): (bool, string) =
-    let (ok, data) = rpc(wallet)
-    if not ok:
-        return
-    (true, data["account"].getStr)
-
-proc account_list*(self: NanoRPC, wallet: string): (bool, seq[string])
-                  {.raises: [].} =
-    let (ok, data) = rpc(wallet)
-    if not ok:
-        return
-
-    var accounts: seq[string]
+template logValueError(code) =
     try:
-        accounts = data["accounts"].getElems.mapIt(it.getStr)
+        code
+    except ValueError as e:
+        try:
+            logging.error e.msg, e.getStackTrace()
+        except:
+            discard
+
+template objResponse(rpc, T): untyped =
+    var res: (bool, T)
+    let (ok, data) = rpc
+    if ok:
+        logValueError:
+            res = (true, data.jsonTo(T))
+    res
+
+{.pragma: ne, raises: [].} # No Exceptions
+
+proc logError(msg: string) {.ne.} =
+    try:
+        logging.error msg
     except:
-        return
+        discard
 
-    assert accounts != nil
-    assert accounts.len == 0 or accounts[0] != nil
-    (true, accounts)
+template response(rpcResponse: (bool, JsonNode); key: string; T): untyped =
+    var res: tuple[ok: bool, data: T]
+    block:
+        let (ok, data) = rpcResponse
+        if not ok:
+            break
+        let val = data.getOrDefault(key)
+        if val.isNil:
+            logError "missing value for key '{key}'"
+            break
+        try:
+            res.data = data.jsonTo(T)
+            res.ok = true
+        except ValueError as e:
+            logError e.msg
+            break
+    res
 
-proc account_remove*(self: NanoRPC, wallet, account: string): bool =
-    let (ok, data) = rpc(wallet, account)
-    if not ok:
-        return
-    data["removed"].getStr == "1"
+template response(rpcResponse: (bool, JsonNode); key: string): untyped =
+    response(rpcResponse, key, string)
 
-proc account_representative_set*(self: NanoRPC, wallet, account,
+proc account_balance*(client; account: string): (bool, Balance) {.ne.} =
+    objResponse(client.rpc(account), Balance)
+
+proc account_create*(client; wallet: string): (bool, string) {.ne.} =
+    response(client.rpc(wallet), "account")
+
+proc account_list*(client; wallet: string): (bool, seq[string]) {.ne.} =
+    response(client.rpc(wallet), "accounts", seq[string])
+
+proc account_remove*(client; wallet, account: string): bool
+                  {.raises: [].} =
+    let res = response(client.rpc(wallet, account), "removed")
+    res.ok and res.data == "1"
+
+proc account_representative_set*(client; wallet, account,
                                  representative: string): bool =
-    rpc(wallet, account, representative)[0]
+    var dummy: JsonNode
+    (result, dummy) = client.rpc(wallet, account, representative)
 
-proc send*(self: NanoRPC, wallet, source, destination, amount: string):
-          (bool, string) =
+proc send*(client; wallet, source, destination, amount, id: string):
+          (bool, string) {.ne.} =
+    response(client.rpc(wallet, source, destination, amount, id), "block")
 
-    # TODO unique guid per node
-    var guid {.global.} = 1
-    guid.inc
+proc wallet_balances*(client; wallet: string):
+                     (bool, seq[(string, Balance)]) =
+    response(client.rpc(wallet), "account", type(result[1]))
 
-    let
-        id = $guid
-        (ok, data) = rpc(wallet, source, destination, amount, id)
-    if not ok:
-        return
-    let blockId = data["block"].getStr
-    (ok, blockId)
-
-proc wallet_balances*(self: NanoRPC, wallet: string):
-                              (bool, seq[(string, Balance)]) =
-    let (ok, data) = rpc(wallet)
-    if not ok:
-        return
-    result[0] = true
-    result[1] = @[]
-    for acc, balance in data["balances"]:
-        result[1].add (acc, initBalance(balance))
-
-when defined testing:
+when isMainModule:
     import unittest
-    import os
 
     suite "tests":
         let
