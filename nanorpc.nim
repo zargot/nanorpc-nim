@@ -1,7 +1,14 @@
-import httpclient # except request
-import json, std/jsonutils
-import macros
-import logging
+import std/[
+    asyncdispatch,
+    httpclient,
+    json,
+    jsonutils,
+    logging,
+    strutils,
+]
+import macros except error
+
+import ws
 
 type
     Account = object
@@ -67,7 +74,7 @@ template logValueError(code) =
         code
     except ValueError as e:
         try:
-            logging.error e.msg, e.getStackTrace()
+            error e.msg, e.getStackTrace()
         except:
             discard
 
@@ -83,7 +90,7 @@ template objResponse(rpc, T): untyped =
 
 proc logError(msg: string) {.ne.} =
     try:
-        logging.error msg
+        error msg
     except:
         discard
 
@@ -135,10 +142,39 @@ proc wallet_balances*(client; wallet: string):
                      (bool, seq[(string, Balance)]) =
     response(client.rpc(wallet), "balances", type(result[1]))
 
-when isMainModule:
-    import unittest
-    import strutils
+proc genId: int =
+    var id {.global.}: int
+    id.inc
+    id
 
+proc subscribe(s: WebSocket; topic: string; timeout = 1000): bool =
+    const baseReq = """
+{
+  "action": "subscribe",
+  "topic": "$1",
+  "ack": true,
+  "id": "$2"
+}
+"""
+    let id = $genId()
+    let req = baseReq % [topic, id]
+    #debug req
+    waitFor ws.send(s, req)
+    let futRes = s.receiveStrPacket()
+    while true:
+        if not waitFor withTimeout(futRes, timeout):
+            return
+        let res = futRes.read
+        #debug res
+        let idNode = res.parseJson.getOrDefault("id")
+        if idNode == nil:
+            continue
+        if idNode.getStr == id:
+            return true
+
+import unittest
+
+when isMainModule:
     suite "tests":
         addHandler newConsoleLogger()
         let
@@ -151,6 +187,11 @@ when isMainModule:
             acc: string
             accounts: seq[string]
             balance: Balance
+
+        test "websocket - subscribe":
+            let s = waitFor newWebSocket("ws://127.0.0.1:17078")
+            let ok = s.subscribe("confirmation")
+            assert ok
 
         when false and defined control:
             test "account create/remove":
