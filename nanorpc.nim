@@ -147,30 +147,24 @@ proc genId: int =
     id.inc
     id
 
-proc subscribe(s: WebSocket; topic: string; timeout = 1000): bool =
-    const baseReq = """
-{
-  "action": "subscribe",
-  "topic": "$1",
-  "ack": true,
-  "id": "$2"
-}
-"""
+proc subscribe(s: WebSocket; topic: string;
+               accounts: openArray[string] = []): bool =
     let id = $genId()
-    let req = baseReq % [topic, id]
-    #debug req
-    waitFor ws.send(s, req)
-    let futRes = s.receiveStrPacket()
-    while true:
-        if not waitFor withTimeout(futRes, timeout):
-            return
-        let res = futRes.read
-        #debug res
-        let idNode = res.parseJson.getOrDefault("id")
-        if idNode == nil:
-            continue
-        if idNode.getStr == id:
-            return true
+    let req = %*{
+        "action": "subscribe",
+        "topic": topic,
+        "ack": true,
+        "id": id,
+        "options": {
+            "accounts": accounts,
+        }
+    }
+    debug req
+    waitFor ws.send(s, $req)
+    let res = waitFor s.receiveStrPacket()
+    debug res
+    let idNode = res.parseJson.getOrDefault("id")
+    result = idNode != nil and idNode.getStr == id
 
 import unittest
 
@@ -181,6 +175,7 @@ when isMainModule:
             config = parseFile "config.json"
             wallet = config["wallet"].getStr
             nano = newNanoRPC()
+            sock = waitFor newWebSocket("ws://127.0.0.1:17078")
 
         var
             ok: bool
@@ -209,6 +204,10 @@ when isMainModule:
 
         test "account balance":
             (ok, balance) = nano.account_balance(acc)
+            assert ok
+
+        test "subscribe to confirmations":
+            ok = sock.subscribe("confirmation", accounts)
             assert ok
 
         when false and defined control:
