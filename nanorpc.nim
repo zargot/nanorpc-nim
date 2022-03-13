@@ -147,9 +147,8 @@ proc genId: int =
     id.inc
     id
 
-proc subscribe(s: WebSocket; topic: string;
-               accounts: openArray[string] = []): bool =
-    let id = $genId()
+proc subscribe(s: WebSocket; id, topic: string;
+               accounts: openArray[string] = []) =
     let req = %*{
         "action": "subscribe",
         "topic": topic,
@@ -161,10 +160,38 @@ proc subscribe(s: WebSocket; topic: string;
     }
     debug req
     waitFor ws.send(s, $req)
-    let res = waitFor s.receiveStrPacket()
-    debug res
-    let idNode = res.parseJson.getOrDefault("id")
-    result = idNode != nil and idNode.getStr == id
+
+type
+    NanoEventKind = enum
+        nekAck, nekConfirmation
+
+    Event = object
+        id: string
+        case kind: NanoEventKind
+        of nekAck:
+            topic: string
+        else:
+            discard
+
+proc process(sock: WebSocket; timeout = 0): Event  =
+    let futRes = sock.receiveStrPacket()
+    var res: string
+    block:
+        if timeout > 0:
+            if not waitFor withTimeout(futRes, timeout):
+                return
+            res = futRes.read
+        else:
+            res = waitFor futRes
+
+    let data = res.parseJson
+    if data.hasKey("ack"):
+        return Event(kind: nekAck, topic: data["ack"].getStr, id: data["id"].getStr)
+
+    let topic = data["topic"].getStr
+    case topic
+    of "confirmation":
+        return Event(kind: nekConfirmation, id: data["hash"].getStr)
 
 import unittest
 
@@ -179,14 +206,9 @@ when isMainModule:
 
         var
             ok: bool
-            acc: string
             accounts: seq[string]
-            balance: Balance
-
-        test "websocket - subscribe":
-            let s = waitFor newWebSocket("ws://127.0.0.1:17078")
-            let ok = s.subscribe("confirmation")
-            assert ok
+            balances: seq[Balance]
+            ev: Event
 
         when false and defined control:
             test "account create/remove":
@@ -200,33 +222,44 @@ when isMainModule:
             (ok, accounts) = nano.account_list(wallet)
             assert ok
             assert accounts.len > 0, "no accounts present"
-            acc = accounts[0]
 
         test "account balance":
-            (ok, balance) = nano.account_balance(acc)
-            assert ok
+            balances.setLen accounts.len
+            for i, acc in accounts:
+                (ok, balances[i]) = nano.account_balance(acc)
+                assert ok
 
         test "subscribe to confirmations":
-            ok = sock.subscribe("confirmation", accounts)
+            let id = $genId()
+            sock.subscribe(id, "confirmation", accounts)
             assert ok
+            ev = sock.process()
+            check ev.id == id
 
         when false and defined control:
             test "send":
                 assert accounts.len >= 2
-                assert balance.balance != "0"
-                let
+                assert balances[0] > 0 or balance[1] > 0
+                var
                     src = accounts[0]
                     dst = accounts[1]
-                    amount = "1"
-                    (ok, blockId) = nano.send(wallet, src, dst, amount)
+                if balances[0].parseInt < balances[1].parseInt:
+                    swap src, dst
+                let amount = balances[0]
+                (ok, blockId) = nano.send(wallet, src, dst, amount)
                 assert ok
                 echo "sent ", amount, " raw"
+
+        test "confirm block":
+            discard
 
         test "wallet balances":
             let (ok, balances) = nano.wallet_balances(wallet)
             assert ok
 
-        when defined control:
+        when false and defined control:
             test "account repr set":
+                let acc = accounts[0]
                 ok = nano.account_representative_set(wallet, acc, acc)
                 assert ok
+
