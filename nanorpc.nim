@@ -11,10 +11,10 @@ type
         kind, prev, dst, balance, work, sig: string
 
     Balance* = tuple
-        balance, pending: string
+        balance, pending, receivable: string
 
 const
-    hostUrl = "http://[::1]:7076"
+    hostUrl = "http://127.0.0.1:17076"
 
 using
     client: HttpClient
@@ -32,11 +32,14 @@ proc newNanoRPC(): HttpClient =
 proc rpcImpl(client; body: JsonNode): (bool, JsonNode)
             {.raises: [].} =
     try:
-        let res = client.request(hostUrl, HttpPost, $body)
+        let req = $body
+        debug req
+        let res = client.request(hostUrl, HttpPost, req)
         if res.code != 200.HttpCode:
             printErr res.repr
             return
         let data = res.body.parseJson
+        debug data
         if data.hasKey("error"):
             printErr data["error"].getStr
             return
@@ -57,7 +60,6 @@ template rpc(client; args: varargs[string]): tuple[ok: bool, data: JsonNode] =
     let action = getProcName()
     var body = %*{ "action": action }
     buildBody body, args
-    echo $body
     rpcImpl client, body
 
 template logValueError(code) =
@@ -96,7 +98,7 @@ template response(rpcResponse: (bool, JsonNode); key: string; T): untyped =
             logError "missing value for key '{key}'"
             break
         try:
-            res.data = data.jsonTo(T)
+            res.data = val.jsonTo(T)
             res.ok = true
         except ValueError as e:
             logError e.msg
@@ -131,17 +133,18 @@ proc send*(client; wallet, source, destination, amount, id: string):
 
 proc wallet_balances*(client; wallet: string):
                      (bool, seq[(string, Balance)]) =
-    response(client.rpc(wallet), "account", type(result[1]))
+    response(client.rpc(wallet), "balances", type(result[1]))
 
 when isMainModule:
     import unittest
+    import strutils
 
     suite "tests":
+        addHandler newConsoleLogger()
         let
             config = parseFile "config.json"
             wallet = config["wallet"].getStr
             nano = newNanoRPC()
-        echo wallet
 
         var
             ok: bool
@@ -160,14 +163,12 @@ when isMainModule:
         test "account list":
             (ok, accounts) = nano.account_list(wallet)
             assert ok
-            echo accounts
             assert accounts.len > 0, "no accounts present"
             acc = accounts[0]
 
         test "account balance":
             (ok, balance) = nano.account_balance(acc)
             assert ok
-            echo balance
 
         when false and defined control:
             test "send":
@@ -184,8 +185,6 @@ when isMainModule:
         test "wallet balances":
             let (ok, balances) = nano.wallet_balances(wallet)
             assert ok
-            for pair in balances:
-                echo pair[0], ": ", pair[1].balance, " (", pair[1].pending ,")"
 
         when defined control:
             test "account repr set":
