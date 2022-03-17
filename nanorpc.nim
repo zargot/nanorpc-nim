@@ -4,6 +4,8 @@ import std/[
     json,
     jsonutils,
     logging,
+    oids,
+    os,
     strutils,
 ]
 import macros except error
@@ -32,7 +34,7 @@ template getProcName(): string =
 template printErr(msg) =
     echo "RPC error: ", msg
 
-proc newNanoRPC(): HttpClient =
+proc newNanoRPC*(): HttpClient =
     result = newHttpClient()
     result.headers = newHttpHeaders({ "Content-Type": "application/json" })
 
@@ -142,38 +144,31 @@ proc wallet_balances*(client; wallet: string):
                      (bool, seq[(string, Balance)]) =
     response(client.rpc(wallet), "balances", type(result[1]))
 
-proc genId: int =
-    var id {.global.}: int
-    id.inc
-    id
-
-proc subscribe(s: WebSocket; id, topic: string;
-               accounts: openArray[string] = []) =
+proc subscribe*(s: WebSocket; id, topic: string;
+                accounts: openArray[string] = []) =
     let req = %*{
         "action": "subscribe",
         "topic": topic,
         "ack": true,
         "id": id,
-        "options": {
-            "accounts": accounts,
-        }
     }
     debug req
     waitFor ws.send(s, $req)
 
 type
-    NanoEventKind = enum
+    NanoEventKind* = enum
         nekAck, nekConfirmation
 
-    Event = object
-        id: string
-        case kind: NanoEventKind
+    Event* = object
+        id*: string
+        case kind*: NanoEventKind
         of nekAck:
-            topic: string
+            ack*: string
         else:
             discard
 
-proc process(sock: WebSocket; timeout = 0): Event  =
+proc process*(sock: WebSocket; ev: var Event; timeout = 0): bool  =
+    # TODO: remove timeout?
     let futRes = sock.receiveStrPacket()
     var res: string
     block:
@@ -183,21 +178,44 @@ proc process(sock: WebSocket; timeout = 0): Event  =
             res = futRes.read
         else:
             res = waitFor futRes
-
     let data = res.parseJson
+
     if data.hasKey("ack"):
-        return Event(kind: nekAck, topic: data["ack"].getStr, id: data["id"].getStr)
+        ev = Event(kind: nekAck, ack: data["ack"].getStr, id: data["id"].getStr)
+        return true
 
     let topic = data["topic"].getStr
     case topic
     of "confirmation":
-        return Event(kind: nekConfirmation, id: data["hash"].getStr)
+        ev = Event(kind: nekConfirmation, id: data["message"]["hash"].getStr)
+        return true
+
+proc processAck*(s: WebSocket; id: string): bool =
+    var ev: Event
+    s.process(ev) and ev.kind == nekAck and ev.id == id
 
 import unittest
 
+template send =
+    assert accounts.len >= 2
+    let
+        b0 = balances[0].balance
+        b1 = balances[1].balance
+    assert b0 != "0" or b1 != "0"
+    var
+        src = accounts[0]
+        dst = accounts[1]
+    if b0 == "0":
+        swap src, dst
+    let
+        amount = "1"
+        id = $genOid()
+    (ok, blockId) = nano.send(wallet, src, dst, amount, id)
+    assert ok
+
 when isMainModule:
     suite "tests":
-        addHandler newConsoleLogger()
+        addHandler newConsoleLogger(lvlInfo)
         let
             config = parseFile "config.json"
             wallet = config["wallet"].getStr
@@ -208,7 +226,7 @@ when isMainModule:
             ok: bool
             accounts: seq[string]
             balances: seq[Balance]
-            ev: Event
+            blockId: string
 
         when false and defined control:
             test "account create/remove":
@@ -230,31 +248,26 @@ when isMainModule:
                 assert ok
 
         test "subscribe to confirmations":
-            let id = $genId()
-            sock.subscribe(id, "confirmation", accounts)
+            let id = $genOid()
+            sock.subscribe(id, "confirmation", [])#accounts)
             assert ok
-            ev = sock.process()
+            var ev: Event
+            ok = sock.process(ev)
+            assert ok
             check ev.id == id
 
-        when false and defined control:
+        when true:#false and defined control:
             test "send":
-                assert accounts.len >= 2
-                assert balances[0] > 0 or balance[1] > 0
-                var
-                    src = accounts[0]
-                    dst = accounts[1]
-                if balances[0].parseInt < balances[1].parseInt:
-                    swap src, dst
-                let amount = balances[0]
-                (ok, blockId) = nano.send(wallet, src, dst, amount)
-                assert ok
-                echo "sent ", amount, " raw"
+                send()
 
         test "confirm block":
-            discard
+            var ev: Event
+            check sock.process(ev)
+            check ev.kind == nekConfirmation
+            check ev.id == blockId
 
         test "wallet balances":
-            let (ok, balances) = nano.wallet_balances(wallet)
+            let (ok, _) = nano.wallet_balances(wallet)
             assert ok
 
         when false and defined control:
