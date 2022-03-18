@@ -13,4 +13,5 @@ proc main =
     while true:
         if not sock.process(ev):
             quit 1
+        echo ev
 main()
