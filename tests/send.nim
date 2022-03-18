@@ -1,6 +1,6 @@
 import json, strformat, logging, oids
 
-import nanorpc
+import nanocurrency
 
 proc main =
     addHandler newConsoleLogger()
