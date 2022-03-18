@@ -2,7 +2,7 @@
 
 version       = "0.1.0"
 author        = "zargot"
-description   = "Nano RPC"
+description   = "Nano currency"
 license       = "MIT"
 srcDir        = ""
 
