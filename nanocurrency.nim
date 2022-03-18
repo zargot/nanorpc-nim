@@ -196,7 +196,7 @@ proc processAck*(s: WebSocket; id: string): bool =
 
 import unittest
 
-template send =
+func getAccountPair(accounts: seq[string], balances: seq[Balance]): (string, string) =
     assert accounts.len >= 2
     let
         b0 = balances[0].balance
@@ -207,17 +207,13 @@ template send =
         dst = accounts[1]
     if b0 == "0":
         swap src, dst
-    let
-        amount = "1"
-        id = $genOid()
-    (ok, blockId) = nano.send(wallet, src, dst, amount, id)
-    assert ok
+    (src, dst)
 
 when isMainModule:
     suite "tests":
         addHandler newConsoleLogger(lvlInfo)
         let
-            config = parseFile "config.json"
+            config = parseFile "tests/config.json"
             wallet = config["wallet"].getStr
             nano = newNanoRPC()
             sock = waitFor newWebSocket("ws://127.0.0.1:17078")
@@ -256,9 +252,10 @@ when isMainModule:
             assert ok
             check ev.id == id
 
-        when true:#false and defined control:
-            test "send":
-                send()
+        test "send":
+            let (src, dst) = getAccountPair(accounts, balances)
+            (ok, blockId) = nano.send(wallet, src, dst, "1", $genOid())
+            assert ok
 
         test "confirm block":
             var ev: Event
