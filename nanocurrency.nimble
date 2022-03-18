@@ -4,7 +4,7 @@ version       = "0.1.0"
 author        = "zargot"
 description   = "Nano currency"
 license       = "MIT"
-srcDir        = ""
+srcDir        = "src"
 
 
 # Dependencies
